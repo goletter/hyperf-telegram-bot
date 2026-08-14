@@ -265,6 +265,34 @@ interface BotInterface
     public function getGroupUsers(int|string $chatId): array;
 
     /**
+     * 获取单个群资料概览（getChat + 人数 + 管理员）。
+     *
+     * @return array{
+     *     chat_id: int|string,
+     *     chat: array<string, mixed>,
+     *     count: int,
+     *     administrators: list<array<string, mixed>>
+     * }
+     */
+    public function getGroupInfo(int|string $chatId): array;
+
+    /**
+     * 按已知 chat_id 列表批量获取群资料。
+     *
+     * Telegram **不能**列出 Bot 所在全部群；需自行落库后再传入 id。
+     * 单个查询失败时对应值为 null，不中断整批。
+     *
+     * @param list<int|string> $chatIds
+     * @return array<string, array{
+     *     chat_id: int|string,
+     *     chat: array<string, mixed>,
+     *     count: int,
+     *     administrators: list<array<string, mixed>>
+     * }|null> chat_id 字符串键 => 资料|null
+     */
+    public function getGroupsInfo(array $chatIds): array;
+
+    /**
      * 便捷创建邀请链接（封装 createChatInviteLink）。
      *
      * Bot 须为群管理员且具备 can_invite_users。

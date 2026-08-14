@@ -369,6 +369,40 @@ class Bot implements BotInterface
 
     /**
      * {@inheritdoc}
+     */
+    public function getGroupInfo(int|string $chatId): array
+    {
+        return [
+            'chat_id' => $chatId,
+            'chat' => $this->getChat(['chat_id' => $chatId]),
+            'count' => $this->getGroupMemberCount($chatId),
+            'administrators' => $this->getGroupAdmins($chatId),
+        ];
+    }
+
+    /**
+     * {@inheritdoc}
+     *
+     * 单个 chat_id 查询失败时对应值为 null，不中断整批。
+     */
+    public function getGroupsInfo(array $chatIds): array
+    {
+        $groups = [];
+
+        foreach ($chatIds as $chatId) {
+            $key = (string) $chatId;
+            try {
+                $groups[$key] = $this->getGroupInfo($chatId);
+            } catch (TelegramApiException) {
+                $groups[$key] = null;
+            }
+        }
+
+        return $groups;
+    }
+
+    /**
+     * {@inheritdoc}
      *
      * Bot 须为群管理员且具备 can_invite_users 权限。
      */

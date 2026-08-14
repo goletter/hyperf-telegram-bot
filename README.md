@@ -207,7 +207,7 @@ class TelegramWebhookController
 ```php
 $bot->setWebhook([
     'url' => 'https://example.com/telegram/webhook/' . $entity->id,
-    'allowed_updates' => ['message', 'callback_query', 'chat_member', 'chat_join_request'],
+    'allowed_updates' => ['message', 'callback_query', 'my_chat_member', 'chat_member', 'chat_join_request'],
 ]);
 ```
 
@@ -299,6 +299,12 @@ $map = $bot->getGroupMembers($chatId, [111, 222, 333]);
 // 不在群内 / 查询失败的为 null
 
 $chat = $bot->getChat(['chat_id' => $chatId]);
+
+$info = $bot->getGroupInfo($chatId);
+// ['chat_id' => ..., 'chat' => [...], 'count' => 128, 'administrators' => [...]]
+
+$map = $bot->getGroupsInfo([-100111, -100222]);
+// chat_id 字符串键 => 资料|null
 ```
 
 监听成员变动并落库（Webhook 需允许 `chat_member`）：
@@ -310,6 +316,71 @@ if ($changed = $update->getChatMemberUpdate()) {
     // 写入群成员表，之后用 getGroupMembers 回查
 }
 ```
+
+### 按 Bot 获取已加入的群（需自行落库）
+
+Telegram **没有**「列出该 Bot 所在全部群」的 API。本包提供：
+
+| 组件 | 作用 |
+|------|------|
+| `BotChatTracker` | 从 Update 同步，再按 Bot 查询群列表 |
+| `BotChatRepositoryInterface` | 仓储契约；默认内存实现，生产请换数据库 |
+| `getMyChatMember()` / `isMyChatMemberUpdate()` | 识别 Bot 进退群事件 |
+| `getGroupInfo` / `getGroupsInfo` | 已知 `chat_id` 时拉实时资料 |
+
+Webhook 控制器里同步：
+
+```php
+use Goletter\Telegram\Service\BotChatTracker;
+
+public function __construct(
+    protected BotFactory $bots,
+    protected Webhook $webhook,
+    protected BotChatTracker $chats,
+    protected BotRepository $repo,
+) {
+}
+
+public function handle(int $id, RequestInterface $request)
+{
+    $entity = $this->repo->find($id);
+    $bot = $this->bots->token($entity->token, (string) $entity->id, [
+        'webhook_secret' => $entity->webhook_secret,
+    ]);
+
+    $update = $this->webhook->parseRequest($request, $bot);
+    $this->chats->sync($bot, $update); // 写入 my_chat_member / 群消息中的 chat
+
+    return ['ok' => true];
+}
+```
+
+按 Bot 取群：
+
+```php
+// 本地已同步记录
+$groups = $this->chats->getGroups($bot);
+
+// 并对每条调用 getChat + 人数等刷新（失败会标记 inactive）
+$groups = $this->chats->getGroups($bot, refresh: true);
+
+// 单群
+$group = $this->chats->getGroup($bot, -1001234567890, refresh: true);
+```
+
+生产环境请绑定自己的仓储（内存实现重启/多 Worker 会丢）：
+
+```php
+// config/autoload/dependencies.php
+use Goletter\Telegram\Contract\BotChatRepositoryInterface;
+use App\Telegram\DbBotChatRepository;
+
+return [
+    BotChatRepositoryInterface::class => DbBotChatRepository::class,
+];
+```
+
+设置 Webhook 时务必包含 `my_chat_member`，否则 Bot 被拉进/踢出群时收不到事件。
 
 ### 拉群 / 邀请链接
 
@@ -351,6 +422,8 @@ $bot->revokeChatInviteLink([
 | `getCallbackQuery()` | 回调查询 |
 | `getChatJoinRequest()` | 加群申请 |
 | `getChatMemberUpdate()` | chat_member / my_chat_member |
+| `getMyChatMember()` | 仅 my_chat_member（Bot 进退群） |
+| `isMyChatMemberUpdate()` | 是否为 Bot 自身成员变更 |
 | `getChatId()` / `getUserId()` | 会话与用户 ID |
 | `getText()` | 消息文本或 callback data |
 | `isCommand('start')` | 是否为 `/start`（兼容 `/start@BotName`） |

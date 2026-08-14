@@ -76,6 +76,28 @@ class Update implements ArrayAccess, JsonSerializable
     }
 
     /**
+     * 获取 Bot 自身成员状态变更（my_chat_member）。
+     *
+     * 用于维护「该 Bot 加入了哪些群」：进群 / 退群 / 权限变化。
+     *
+     * @return array<string, mixed>|null ChatMemberUpdated
+     */
+    public function getMyChatMember(): ?array
+    {
+        $value = $this->data['my_chat_member'] ?? null;
+
+        return is_array($value) ? $value : null;
+    }
+
+    /**
+     * 是否为 my_chat_member 更新。
+     */
+    public function isMyChatMemberUpdate(): bool
+    {
+        return $this->getMyChatMember() !== null;
+    }
+
+    /**
      * 从常见 Update 类型中提取 chat 对象。
      *
      * @return array<string, mixed>|null Chat
