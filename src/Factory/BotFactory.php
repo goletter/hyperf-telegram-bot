@@ -8,8 +8,11 @@ use Goletter\Telegram\Bot;
 use Goletter\Telegram\Exceptions\TelegramApiException;
 use GuzzleHttp\ClientInterface;
 use Hyperf\Contract\ConfigInterface;
+use Hyperf\Contract\StdoutLoggerInterface;
 use Hyperf\Guzzle\ClientFactory;
 use InvalidArgumentException;
+use Psr\Container\ContainerInterface;
+use Psr\Log\LoggerInterface;
 
 /**
  * Bot 工厂：支持配置文件与运行时动态 Token。
@@ -47,7 +50,8 @@ class BotFactory
 
     public function __construct(
         protected ConfigInterface $config,
-        protected ClientFactory $clientFactory
+        protected ClientFactory $clientFactory,
+        protected ContainerInterface $container
     ) {
     }
 
@@ -250,14 +254,33 @@ class BotFactory
     {
         $http = (array) $this->config->get('telegram.http', []);
         $baseUri = (string) ($http['base_uri'] ?? 'https://api.telegram.org');
+        $logRequest = (bool) ($http['log_request'] ?? false);
 
         return new Bot(
             token: $token,
             client: $this->httpClient(),
             name: $name,
             baseUri: $baseUri,
-            webhookSecret: (string) ($options['webhook_secret'] ?? '')
+            webhookSecret: (string) ($options['webhook_secret'] ?? ''),
+            logRequest: $logRequest,
+            logger: $logRequest ? $this->requestLogger() : null
         );
+    }
+
+    /**
+     * 解析请求耗时日志实现（优先 StdoutLogger）。
+     */
+    protected function requestLogger(): ?LoggerInterface
+    {
+        if ($this->container->has(StdoutLoggerInterface::class)) {
+            return $this->container->get(StdoutLoggerInterface::class);
+        }
+
+        if ($this->container->has(LoggerInterface::class)) {
+            return $this->container->get(LoggerInterface::class);
+        }
+
+        return null;
     }
 
     /**

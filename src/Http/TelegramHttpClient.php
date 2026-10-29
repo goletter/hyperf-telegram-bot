@@ -9,6 +9,7 @@ use GuzzleHttp\ClientInterface;
 use GuzzleHttp\Exception\GuzzleException;
 use GuzzleHttp\Exception\RequestException;
 use GuzzleHttp\RequestOptions;
+use Psr\Log\LoggerInterface;
 
 /**
  * Telegram Bot API 底层 HTTP 客户端。
@@ -21,11 +22,17 @@ class TelegramHttpClient
      * @param ClientInterface $http Guzzle 客户端
      * @param string $token 已规范化的 Bot Token
      * @param string $baseUri API 根地址，默认 https://api.telegram.org
+     * @param string $botName Bot 逻辑名称（仅用于耗时日志）
+     * @param bool $logRequest 是否记录请求耗时
+     * @param LoggerInterface|null $logger 日志实现；logRequest 为 true 且为 null 时不写日志
      */
     public function __construct(
         protected ClientInterface $http,
         protected string $token,
-        protected string $baseUri = 'https://api.telegram.org'
+        protected string $baseUri = 'https://api.telegram.org',
+        protected string $botName = 'default',
+        protected bool $logRequest = false,
+        protected ?LoggerInterface $logger = null
     ) {
         $this->baseUri = rtrim($baseUri, '/');
     }
@@ -42,6 +49,9 @@ class TelegramHttpClient
     {
         $url = sprintf('%s/bot%s/%s', $this->baseUri, $this->token, ltrim($method, '/'));
         $options = $this->buildOptions($params);
+        $startedAt = hrtime(true);
+        $ok = false;
+        $error = null;
 
         try {
             $response = $this->http->request('POST', $url, $options);
@@ -67,22 +77,29 @@ class TelegramHttpClient
                 throw new TelegramApiException($description, $errorCode, $decoded);
             }
 
+            $ok = true;
+
             return $decoded['result'] ?? null;
         } catch (TelegramApiException $e) {
+            $error = $e->getMessage();
             throw $e;
         } catch (RequestException $e) {
             $response = $e->getResponse();
             $raw = $response ? (string) $response->getBody() : $e->getMessage();
             $decoded = is_string($raw) && $raw !== '' ? (json_decode($raw, true) ?: []) : [];
+            $error = (string) ($decoded['description'] ?? $e->getMessage());
 
             throw new TelegramApiException(
-                (string) ($decoded['description'] ?? $e->getMessage()),
+                $error,
                 (int) ($decoded['error_code'] ?? $e->getCode()),
                 is_array($decoded) ? $decoded : ['raw' => $raw],
                 $e
             );
         } catch (GuzzleException $e) {
+            $error = $e->getMessage();
             throw new TelegramApiException($e->getMessage(), (int) $e->getCode(), [], $e);
+        } finally {
+            $this->writeRequestLog($method, $startedAt, $ok, $error);
         }
     }
 
@@ -203,5 +220,40 @@ class TelegramHttpClient
         }
 
         return $multipart;
+    }
+
+    /**
+     * 写入请求耗时日志（不含 Token / 请求体）。
+     */
+    protected function writeRequestLog(string $method, int $startedAt, bool $ok, ?string $error): void
+    {
+        if (! $this->logRequest || $this->logger === null) {
+            return;
+        }
+
+        $durationMs = (int) round((hrtime(true) - $startedAt) / 1e6);
+        $context = [
+            'bot' => $this->botName,
+            'method' => $method,
+            'duration_ms' => $durationMs,
+            'ok' => $ok,
+        ];
+        if ($error !== null && $error !== '') {
+            $context['error'] = $error;
+        }
+
+        $message = sprintf(
+            '[telegram] bot=%s method=%s duration_ms=%d ok=%d',
+            $this->botName,
+            $method,
+            $durationMs,
+            $ok ? 1 : 0
+        );
+
+        if ($ok) {
+            $this->logger->info($message, $context);
+        } else {
+            $this->logger->warning($message, $context);
+        }
     }
 }

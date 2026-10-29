@@ -21,5 +21,7 @@ return [
         'timeout' => (float) env('TELEGRAM_HTTP_TIMEOUT', 30),
         // 可选代理，例如 http://127.0.0.1:7890
         'proxy' => env('TELEGRAM_HTTP_PROXY'),
+        // 是否记录每次 Bot API 请求耗时（毫秒），默认关闭；日志不含 Token
+        'log_request' => (bool) env('TELEGRAM_HTTP_LOG_REQUEST', false),
     ],
 ];

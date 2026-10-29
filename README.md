@@ -60,8 +60,16 @@ return [
         'base_uri' => env('TELEGRAM_API_BASE_URI', 'https://api.telegram.org'),
         'timeout' => (float) env('TELEGRAM_HTTP_TIMEOUT', 30),
         'proxy' => env('TELEGRAM_HTTP_PROXY'), // 例如 http://127.0.0.1:7890
+        // 请求耗时日志，默认关闭；开启后写 StdoutLogger，不含 Token
+        'log_request' => (bool) env('TELEGRAM_HTTP_LOG_REQUEST', false),
     ],
 ];
+```
+
+开启后每次 Bot API 调用会打类似日志：
+
+```text
+[telegram] bot=default method=sendMessage duration_ms=128 ok=1
 ```
 
 静态单 Bot 时可这样写：
@@ -262,12 +270,67 @@ $bot->sendMessage([
     'text' => 'Hello',
 ]);
 
+// 静音发送（无声音/震动提醒）
+$bot->sendMessage([
+    'chat_id' => 123456,
+    'text' => '静默通知',
+    'disable_notification' => true,
+]);
+
+// 单图：file_id / 远程 URL / 资源流 / SplFileInfo / ['contents'=>..., 'filename'=>...]
+$bot->sendPhoto([
+    'chat_id' => 123456,
+    'photo' => 'https://example.com/cover.jpg', // 远程地址
+    'caption' => '封面图',
+    'disable_notification' => true,
+]);
+
+// 多图（1～10）：远程 URL、本地文件可混用；返回 Message 列表
+$bot->sendPhotos(123456, [
+    'https://example.com/1.jpg',
+    'https://example.com/2.jpg',
+    ['media' => fopen('/path/to/3.jpg', 'r'), 'caption' => '第三张说明'],
+], [
+    'disable_notification' => true,
+]);
+
+// 底层媒体组（可混 photo/video 等 InputMedia）
+$bot->sendMediaGroup([
+    'chat_id' => 123456,
+    'media' => [
+        ['type' => 'photo', 'media' => 'https://example.com/a.jpg'],
+        ['type' => 'photo', 'media' => 'https://example.com/b.jpg', 'caption' => '相册'],
+    ],
+]);
+
+// 单视频：远程 URL / file_id / 本地文件
+$bot->sendVideo([
+    'chat_id' => 123456,
+    'video' => 'https://example.com/clip.mp4',
+    'caption' => '演示视频',
+    'supports_streaming' => true,
+]);
+
+// 多视频（1～10）：远程 URL、本地文件可混用
+$bot->sendVideos(123456, [
+    'https://example.com/a.mp4',
+    ['media' => 'https://example.com/b.mp4', 'caption' => '第二段', 'supports_streaming' => true],
+    fopen('/path/to/c.mp4', 'r'),
+]);
+
+// 文档：远程 URL / file_id / 本地文件
+$bot->sendDocument([
+    'chat_id' => 123456,
+    'document' => 'https://example.com/report.pdf',
+    'caption' => '报表',
+    'disable_notification' => true,
+]);
 $bot->sendDocument([
     'chat_id' => 123456,
     'document' => fopen('/path/to/file.pdf', 'r'),
-    'caption' => '报表',
+    'caption' => '本地上传',
 ]);
-// document 也支持 SplFileInfo，或 ['contents' => ..., 'filename' => 'a.pdf']
+// 也支持 SplFileInfo，或 ['contents' => ..., 'filename' => 'a.pdf']
 ```
 
 任意未封装的 API 可用：
@@ -275,6 +338,53 @@ $bot->sendDocument([
 ```php
 $bot->call('sendVenue', [/* ... */]);
 ```
+
+### 输入框旁菜单按钮（Menu Button）
+
+可设为命令列表、Mini App（`web_app`）或恢复默认。与系统「+」附件菜单无关。
+
+Telegram **没有**独立的 create / update / delete：设置即覆盖，删除即恢复 `default`。
+
+| 操作 | 方法 |
+|------|------|
+| 添加 / 修改 | `setWebAppMenuButton($text, $url, $chatId?)` |
+| 查询 | `getWebAppMenuButton($chatId?)` → `['text'=>..., 'url'=>...]` 或 `null` |
+| 删除 | `removeWebAppMenuButton($chatId?)`（恢复 default） |
+
+```php
+// 添加（或修改：再调一次覆盖文案/URL）
+$bot->setWebAppMenuButton('工单', 'https://your.domain/ticket');
+$bot->setWebAppMenuButton('工单', 'https://your.domain/ticket/v2', -1001234567890);
+
+// 查询当前 web_app 配置（非 web_app 时为 null）
+$current = $bot->getWebAppMenuButton(-1001234567890);
+// ['text' => '工单', 'url' => 'https://...'] 或 null
+
+// 删除（去掉 Mini App 菜单，恢复默认）
+$bot->removeWebAppMenuButton(-1001234567890);
+// 或：$bot->resetChatMenuButton($chatId);
+
+// 命令列表：先 setMyCommands，再把菜单设为 commands
+$bot->setMyCommands([
+    'commands' => [
+        ['command' => 'repair', 'description' => '提交报修'],
+        ['command' => 'complaint', 'description' => '提交投诉'],
+    ],
+    'scope' => ['type' => 'all_group_chats'],
+]);
+$bot->setCommandsMenuButton(); // 或带 chat_id
+
+// 原始参数也可
+$bot->setChatMenuButton([
+    'menu_button' => [
+        'type' => 'web_app',
+        'text' => '工单',
+        'web_app' => ['url' => 'https://your.domain/ticket'],
+    ],
+]);
+```
+
+Menu Button 打开的 Mini App 一般自行调业务 API。若使用 ReplyKeyboard 上的 `web_app` 按钮回传，可用 `$update->getWebAppData()`。
 
 ### 获取群用户（重要限制）
 
@@ -413,6 +523,37 @@ $bot->revokeChatInviteLink([
 
 ---
 
+## 已封装 API 一览
+
+未列出的方法仍可用 `$bot->call('methodName', $params)`。
+
+| 类别 | 方法 |
+|------|------|
+| 文本/编辑 | `sendMessage`、`editMessageText` / `Caption` / `Media` / `ReplyMarkup`、`deleteMessage(s)` |
+| 转发复制 | `forwardMessage(s)`、`copyMessage(s)` |
+| 媒体 | `sendPhoto` / `Video` / `Document` / `Animation` / `Audio` / `Voice` / `VideoNote` / `Sticker`、`sendMediaGroup`、`sendPhotos` / `sendVideos` |
+| 其它消息 | `sendLocation` / `Venue` / `Contact` / `Poll` / `Dice`、`stopPoll`、`sendChatAction`、`setMessageReaction` |
+| 回调/Inline/WebApp | `answerCallbackQuery`、`answerInlineQuery`、`answerWebAppQuery` |
+| 菜单/命令/资料 | Menu Button 系列、`set/get/deleteMyCommands`、`set/getMyName`、`Description`、`ShortDescription`、默认管理员权限 |
+| 群管理 | 邀请链接、进群审批、`ban`/`unban`/`restrict`/`promote`、权限与头衔、置顶、群资料、`leaveChat` |
+| 论坛话题 | `create/edit/close/reopen/deleteForumTopic`、`unpinAllForumTopicMessages`、`getForumTopicIconStickers` |
+| 更新与文件 | `getUpdates`、Webhook、`getFile`、`getMe`、`getUserProfilePhotos`、群查询便捷方法 |
+
+```php
+$bot->sendChatAction(['chat_id' => $chatId, 'action' => 'typing']);
+$bot->pinChatMessage(['chat_id' => $chatId, 'message_id' => $messageId]);
+$bot->editMessageReplyMarkup([
+    'chat_id' => $chatId,
+    'message_id' => $messageId,
+    'reply_markup' => json_encode(['inline_keyboard' => []]),
+]);
+$bot->forwardMessage([
+    'chat_id' => $to,
+    'from_chat_id' => $from,
+    'message_id' => $messageId,
+]);
+```
+
 ## Update 常用方法
 
 | 方法 | 说明 |
@@ -420,12 +561,18 @@ $bot->revokeChatInviteLink([
 | `getUpdateId()` | update_id |
 | `getMessage()` | message / edited_message / channel_post 等 |
 | `getCallbackQuery()` | 回调查询 |
+| `getWebAppData()` | 键盘 Web App 回传（`message.web_app_data`） |
+| `getInlineQuery()` | Inline 查询 |
+| `getChosenInlineResult()` | 用户选择的 Inline 结果 |
+| `getShippingQuery()` / `getPreCheckoutQuery()` | 支付相关查询 |
+| `getPoll()` / `getPollAnswer()` | 投票更新 |
+| `getMessageReaction()` / `getMessageReactionCount()` | 表情回应 |
 | `getChatJoinRequest()` | 加群申请 |
 | `getChatMemberUpdate()` | chat_member / my_chat_member |
 | `getMyChatMember()` | 仅 my_chat_member（Bot 进退群） |
 | `isMyChatMemberUpdate()` | 是否为 Bot 自身成员变更 |
 | `getChatId()` / `getUserId()` | 会话与用户 ID |
-| `getText()` | 消息文本或 callback data |
+| `getText()` | 消息文本、callback data 或 web_app_data.data |
 | `isCommand('start')` | 是否为 `/start`（兼容 `/start@BotName`） |
 | `toArray()` | 原始数组 |
 

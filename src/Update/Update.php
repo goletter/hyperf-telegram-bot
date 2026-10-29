@@ -52,6 +52,118 @@ class Update implements ArrayAccess, JsonSerializable
     }
 
     /**
+     * 获取键盘 Web App 回传数据（message.web_app_data）。
+     *
+     * 来自 ReplyKeyboard 上 type=web_app 的按钮；Menu Button 打开的 Mini App
+     * 一般自行调业务 API，不会走此字段。
+     *
+     * @return array{button_text?: string, data?: string}|null
+     */
+    public function getWebAppData(): ?array
+    {
+        $message = $this->getMessage();
+        $data = $message['web_app_data'] ?? null;
+
+        return is_array($data) ? $data : null;
+    }
+
+    /**
+     * 获取 Inline 查询（inline_query）。
+     *
+     * @return array<string, mixed>|null
+     */
+    public function getInlineQuery(): ?array
+    {
+        $query = $this->data['inline_query'] ?? null;
+
+        return is_array($query) ? $query : null;
+    }
+
+    /**
+     * 获取用户选择的 Inline 结果（chosen_inline_result）。
+     *
+     * @return array<string, mixed>|null
+     */
+    public function getChosenInlineResult(): ?array
+    {
+        $result = $this->data['chosen_inline_result'] ?? null;
+
+        return is_array($result) ? $result : null;
+    }
+
+    /**
+     * 获取配送地址查询（shipping_query）。
+     *
+     * @return array<string, mixed>|null
+     */
+    public function getShippingQuery(): ?array
+    {
+        $query = $this->data['shipping_query'] ?? null;
+
+        return is_array($query) ? $query : null;
+    }
+
+    /**
+     * 获取支付预结账查询（pre_checkout_query）。
+     *
+     * @return array<string, mixed>|null
+     */
+    public function getPreCheckoutQuery(): ?array
+    {
+        $query = $this->data['pre_checkout_query'] ?? null;
+
+        return is_array($query) ? $query : null;
+    }
+
+    /**
+     * 获取投票状态更新（poll）。
+     *
+     * @return array<string, mixed>|null
+     */
+    public function getPoll(): ?array
+    {
+        $poll = $this->data['poll'] ?? null;
+
+        return is_array($poll) ? $poll : null;
+    }
+
+    /**
+     * 获取用户投票（poll_answer）。
+     *
+     * @return array<string, mixed>|null
+     */
+    public function getPollAnswer(): ?array
+    {
+        $answer = $this->data['poll_answer'] ?? null;
+
+        return is_array($answer) ? $answer : null;
+    }
+
+    /**
+     * 获取消息表情回应更新（message_reaction）。
+     *
+     * @return array<string, mixed>|null
+     */
+    public function getMessageReaction(): ?array
+    {
+        $reaction = $this->data['message_reaction'] ?? null;
+
+        return is_array($reaction) ? $reaction : null;
+    }
+
+    /**
+     * 获取消息表情回应计数更新（message_reaction_count）。
+     *
+     * @return array<string, mixed>|null
+     */
+    public function getMessageReactionCount(): ?array
+    {
+        $count = $this->data['message_reaction_count'] ?? null;
+
+        return is_array($count) ? $count : null;
+    }
+
+    /**
      * 获取加群申请（chat_join_request）。
      *
      * @return array<string, mixed>|null
@@ -124,6 +236,21 @@ class Update implements ArrayAccess, JsonSerializable
             return $memberUpdate['chat'];
         }
 
+        $reaction = $this->getMessageReaction();
+        if (isset($reaction['chat']) && is_array($reaction['chat'])) {
+            return $reaction['chat'];
+        }
+
+        $reactionCount = $this->getMessageReactionCount();
+        if (isset($reactionCount['chat']) && is_array($reactionCount['chat'])) {
+            return $reactionCount['chat'];
+        }
+
+        $pollAnswer = $this->getPollAnswer();
+        if (isset($pollAnswer['voter_chat']) && is_array($pollAnswer['voter_chat'])) {
+            return $pollAnswer['voter_chat'];
+        }
+
         return null;
     }
 
@@ -167,6 +294,22 @@ class Update implements ArrayAccess, JsonSerializable
             return $memberUpdate['new_chat_member']['user'];
         }
 
+        foreach ([
+            $this->getInlineQuery(),
+            $this->getChosenInlineResult(),
+            $this->getShippingQuery(),
+            $this->getPreCheckoutQuery(),
+            $this->getPollAnswer(),
+            $this->getMessageReaction(),
+        ] as $payload) {
+            if (isset($payload['from']) && is_array($payload['from'])) {
+                return $payload['from'];
+            }
+            if (isset($payload['user']) && is_array($payload['user'])) {
+                return $payload['user'];
+            }
+        }
+
         return null;
     }
 
@@ -184,7 +327,7 @@ class Update implements ArrayAccess, JsonSerializable
     }
 
     /**
-     * 获取文本：消息 text，或 callback_query.data。
+     * 获取文本：消息 text、callback_query.data，或 web_app_data.data。
      */
     public function getText(): ?string
     {
@@ -196,6 +339,11 @@ class Update implements ArrayAccess, JsonSerializable
         $callback = $this->getCallbackQuery();
         if (isset($callback['data']) && is_string($callback['data'])) {
             return $callback['data'];
+        }
+
+        $webApp = $this->getWebAppData();
+        if (isset($webApp['data']) && is_string($webApp['data'])) {
+            return $webApp['data'];
         }
 
         return null;
